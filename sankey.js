@@ -10,7 +10,7 @@ d3.sankey = function() {
       leftJustifyOrigins = true,
       curvature = 0.5;
 
-  // Accessor-land:
+  // ACCESSORS //
   sankey.curvature = function(x) {
     if (x === undefined) { return curvature; }
     curvature = +x;
@@ -59,13 +59,15 @@ d3.sankey = function() {
     return sankey;
   };
 
+  // FUNCTIONS //
+
   // valueSum: Add up all the 'value' keys from a list of objects (happens a lot):
   function valueSum(nodelist) {
     return d3.sum(nodelist, function(d) { return d.value; });
   }
 
-  // center: Y-position of the middle of a node.
-  function center(node) { return node.y + node.dy / 2; }
+  // verticalCenter: Y-position of the middle of a node.
+  function verticalCenter(node) { return node.y + node.dy / 2; }
 
   // computeNodeLinks: Populate the sourceLinks and targetLinks for each node.
   // Also, if the source and target are not objects, assume they are indices.
@@ -93,30 +95,6 @@ d3.sankey = function() {
     nodes.forEach(function(node) {
       node.value = Math.max( valueSum(node.sourceLinks), valueSum(node.targetLinks) );
     });
-  }
-
-  function moveOriginsRight() {
-    nodes.forEach(function(node) {
-      // If this node is not the target for any others, then it's an origin
-      if (!node.targetLinks.length) {
-        // Now move it as far right as it can go:
-        node.x = d3.min(node.sourceLinks, function(d) { return d.target.x; }) - 1;
-      }
-    });
-  }
-
-  function moveSinksRight(last_x_position) {
-    nodes.forEach(function(node) {
-      // If this node is not the source for any others, then it's a dead-end
-      if (!node.sourceLinks.length) {
-        // Now move it all the way to the right of the diagram:
-        node.x = last_x_position;
-      }
-    });
-  }
-
-  function scaleNodeBreadths(kx) {
-    nodes.forEach(function(node) { node.x *= kx; });
   }
 
   // computeLinkDepths: Compute the y-offset of the source endpoint (sy) and
@@ -163,6 +141,30 @@ d3.sankey = function() {
         });
     }
 
+    function moveOriginsRight() {
+      nodes.forEach(function(node) {
+        // If this node is not the target for any others, then it's an origin
+        if (!node.targetLinks.length) {
+          // Now move it as far right as it can go:
+          node.x = d3.min(node.sourceLinks, function(d) { return d.target.x; }) - 1;
+        }
+      });
+    }
+
+    function moveSinksRight(last_x_position) {
+      nodes.forEach(function(node) {
+        // If this node is not the source for any others, then it's a dead-end
+        if (!node.sourceLinks.length) {
+          // Now move it all the way to the right of the diagram:
+          node.x = last_x_position;
+        }
+      });
+    }
+
+    function scaleNodeBreadths(kx) {
+      nodes.forEach(function(node) { node.x *= kx; });
+    }
+
     // Work from left to right.
     // Keep updating the breadth (x-position) of nodes that are targets of
     // recently-updated nodes.
@@ -173,44 +175,48 @@ d3.sankey = function() {
       x += 1;
     }
 
-    // Move endpoint nodes all the way to the right?
+    // Force endpoint nodes all the way to the right?
     if (rightJustifyEndpoints) {
       moveSinksRight(x - 1);
     }
 
-    // Let origins appear just before their first target node?
-    // (In this case, we have to do extra work to *not* justify these nodes.)
+    // Force origins to appear just before their first target node?
+    // (In this case, we have to do extra work to UN-justify these nodes.)
     if (!leftJustifyOrigins) {
       moveOriginsRight();
     }
 
-    // Apply a scaling factor to the breadths to spread them evenly across the canvas:
+    // Apply a scaling factor to the breadths to calculate an exact x-coordinate
+    // for each node:
     scaleNodeBreadths( (size[0] - nodeWidth) / (x - 1) );
   }
 
   // computeNodeDepths: Compute the depth (y-position) for each node.
   function computeNodeDepths(iterations) {
     var alpha = 1,
-        // Group nodes by breadth:
+        // Group nodes by column & make an iterator for each set:
         nodesByBreadth = d3.nest()
-        .key(function(d) { return d.x; })
-        .sortKeys(d3.ascending)
-        .entries(nodes)
-        .map(function(d) { return d.values; });
+          .key(function(d) { return d.x; })
+          .sortKeys(d3.ascending)
+          .entries(nodes)
+          .map(function(d) { return d.values; });
 
     function initializeNodeDepth() {
-      // Calculate vertical scaling factor.
-      var ky = d3.min(nodesByBreadth, function(nodes) {
-        return (size[1] - (nodes.length - 1) * nodePadding) / valueSum(nodes);
-      });
+      // Calculate vertical scaling factor for all nodes given the diagram height:
+      var ky = d3.min(nodesByBreadth,
+        function(nodes) {
+          return (size[1] - (nodes.length - 1) * nodePadding) / valueSum(nodes);
+        });
 
       nodesByBreadth.forEach(function(nodes) {
         nodes.forEach(function(node, i) {
-          node.y = i;
+          node.y = i; // i = a counter (0 to the # of nodes at this level)
+          // scale every node's raw value to the final height in the graph
           node.dy = node.value * ky;
         });
       });
 
+      // Set links' raw dy value using the scale of the graph
       links.forEach(function(link) {
         link.dy = link.value * ky;
       });
@@ -224,7 +230,9 @@ d3.sankey = function() {
             nodes_in_group = nodes.length,
             i;
 
+        // sort functions for determining what order items should be processed in:
         function ascendingDepth(a, b) { return a.y - b.y; }
+        // function orderInSource(a, b) { return a.sourceline - b.sourceline; }
 
         // Push any overlapping nodes down.
         nodes.sort(ascendingDepth);
@@ -264,7 +272,7 @@ d3.sankey = function() {
             // linked to this node:
             var y_position = d3.sum(node.targetLinks, weightedSource)
                 / valueSum(node.targetLinks);
-            node.y += (y_position - center(node)) * alpha;
+            node.y += (y_position - verticalCenter(node)) * alpha;
           }
         });
       });
@@ -282,7 +290,7 @@ d3.sankey = function() {
             // linked to this node:
             var y_position = d3.sum(node.sourceLinks, weightedTarget)
                 / valueSum(node.sourceLinks);
-            node.y += (y_position - center(node)) * alpha;
+            node.y += (y_position - verticalCenter(node)) * alpha;
           }
         });
       });
