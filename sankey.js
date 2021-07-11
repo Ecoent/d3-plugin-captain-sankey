@@ -6,8 +6,8 @@ d3.sankey = function() {
       size = [1, 1],
       nodes = [],
       links = [],
-      rightJustifyEndpoints = true,
-      leftJustifyOrigins = true,
+      rightJustifyEndpoints = false,
+      leftJustifyOrigins = false,
       curvature = 0.5;
 
   // ACCESSORS //
@@ -127,11 +127,11 @@ d3.sankey = function() {
   function computeNodeBreadths() {
     var remainingNodes = nodes,
         nextNodes,
-        x = 0;
+        maxBreadthSoFar = 0;
 
     function updateNode(node) {
         // Set x-position and width:
-        node.x = x;
+        node.x = maxBreadthSoFar;
         node.dx = nodeWidth;
         node.sourceLinks.forEach(function(link) {
           // Only add it to the nextNodes list if it is not already present:
@@ -168,27 +168,23 @@ d3.sankey = function() {
     // Work from left to right.
     // Keep updating the breadth (x-position) of nodes that are targets of
     // recently-updated nodes.
-    while (remainingNodes.length && x < nodes.length) {
+    while (remainingNodes.length && maxBreadthSoFar < nodes.length) {
       nextNodes = [];
       remainingNodes.forEach(updateNode);
       remainingNodes = nextNodes;
-      x += 1;
+      maxBreadthSoFar += 1;
     }
 
     // Force endpoint nodes all the way to the right?
-    if (rightJustifyEndpoints) {
-      moveSinksRight(x - 1);
-    }
+    if (rightJustifyEndpoints) { moveSinksRight(maxBreadthSoFar - 1); }
 
     // Force origins to appear just before their first target node?
     // (In this case, we have to do extra work to UN-justify these nodes.)
-    if (!leftJustifyOrigins) {
-      moveOriginsRight();
-    }
+    if (!leftJustifyOrigins) { moveOriginsRight(); }
 
     // Apply a scaling factor to the breadths to calculate an exact x-coordinate
     // for each node:
-    scaleNodeBreadths( (size[0] - nodeWidth) / (x - 1) );
+    scaleNodeBreadths( (size[0] - nodeWidth) / (maxBreadthSoFar - 1) );
   }
 
   // computeNodeDepths: Compute the depth (y-position) for each node.
@@ -196,8 +192,9 @@ d3.sankey = function() {
     var alpha = 1,
         // Group nodes by column & make an iterator for each set:
         nodesByBreadth = d3.nest()
+          // fixed this sort to actually be numeric so the columns are handled in order:
           .key(function(d) { return d.x; })
-          .sortKeys(d3.ascending)
+          .sortKeys( function(a,b) { return a - b; } )
           .entries(nodes)
           .map(function(d) { return d.values; });
 
@@ -217,9 +214,7 @@ d3.sankey = function() {
       });
 
       // Set links' raw dy value using the scale of the graph
-      links.forEach(function(link) {
-        link.dy = link.value * ky;
-      });
+      links.forEach( function(link) { link.dy = link.value * ky; } );
     }
 
     function resolveCollisions() {
